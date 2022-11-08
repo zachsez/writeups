@@ -13,7 +13,7 @@ Given firmware.img (MD5: 04c41b8cfdccec69248d037103e89e2c)
 ## Recon
 Sure enough connecting to the IP and port doesn't given any ASCII feedback. So I fired up wireshark and captured a few packets. 
 
-![Wireshark Capture](/media/wireshark.png?raw=true)
+![Wireshark Capture](media/wireshark.png?raw=true)
 
 Regardless of what I entered. I always got the same 9 byte reponse:
 
@@ -63,11 +63,11 @@ I choose to start with 0x2d88, the negative number condtion which I'm assuming t
 
 Once again I see 0xe0bd0d0 but this time I also see 0x100 and 0xff all constants that appear in my captured packet. I fixed up the memory layout by assigning my struct to the local buffer.
 
-![Binja Error Message Snap](/media/error_msg_0x2d88.png?raw=true)
+![Binja Error Message Snap](media/error_msg_0x2d88.png?raw=true)
 
 Sure enought the `msg.checksum` field was being assigned the return value of a function that takes a pointer to msg and 7 as parameters, could this be a compute_checksum function. Yup, 0x2d5c xors a buffer together, so confirmed.
 
-![Binja Compute Checksum Snap](/media/compute_checksum_0x2d5c.png?raw=true)
+![Binja Compute Checksum Snap](media/compute_checksum_0x2d5c.png?raw=true)
 
 There is one final function call in function and its to 0x11708, I pretty quickly IDed this as memcpy, which makes sense we are coping the local msg buffer into the pointer provided as the first argument.
 
@@ -102,7 +102,7 @@ struct cmd_handler __packed
 
 I rebased the firmware image to 0xc000_0000 to see if the process_func pointers lined up with functions and they did! At this point I had pretty good confidence this wsa the process_request function and renamed stub 0x2ef0.
 
-![Binja handlers Snap](/media/handler_0x2f5b0.png?raw=true)
+![Binja handlers Snap](media/handler_0x2f5b0.png?raw=true)
 
 ## Sending a Valid Message
 I clicked thought the command handlers till I landed on stub 0xc000_35c8 which contained the format string "SNO: %s Version %s". I remember seeing string "1.0.4 ARM Reel" from strings recon which looked like a version and figured this handler would be a great starting point to get the communication working with the remote.
@@ -120,7 +120,7 @@ def read_sno() -> bytes:
 ```
 Sure enough I was able to capture the serial number and version:
 
-![SNO Command Output](/media/sno_output.png?raw=true)
+![SNO Command Output](media/sno_output.png?raw=true)
 
 ## Flag Store
 During the setup of the ARM chip (stub 0x2830) the flag is copied from a static string to a global buffer which I named flag_store. The flag_store variable happend to be referenced in another function (0x3578) which also happened to be command handler for `0xbc`...
@@ -129,7 +129,7 @@ This is when I first encountered the `*(arg3 + sx.q(arg4) * 0x134 + <offset>))`,
 
 Back to stub 0x3578, offset 0x1c4 is check if its true send back the contents of flag store, if its false send an error message.
 
-![Binja Read Flag Store Snap](/media/read_flag_0x3578.png?raw=true)
+![Binja Read Flag Store Snap](media/read_flag_0x3578.png?raw=true)
 
 I renamed this stub process_read_flag_store and began creating a function in script to read the flag. Figured I YOLO and see if 0x1c4 is true by default, it is an embedded device ;) ... :( That didn't work received `d0d00b0e0001fffbfc` back from the remote, the expected error message.
 
@@ -138,7 +138,7 @@ How do I set offset 0x1c4 to true?
 ## Stub 0x320c
 This is the only function that sets 0x1c4 to 1, but what events lead up to 0x1c4 being set? There are 2 string compare checks each successful check increments a variable, if said variable is 2 then 0x1c4 is set to 1.
 
-![Binja Login Logic Snap](/media/process_login.png?raw=true)
+![Binja Login Logic Snap](media/process_login.png?raw=true)
 
 Unlike the other handlers this one contained a while loop, which I found strange could this be a multi part message?
 
@@ -171,7 +171,7 @@ Maybe I can perform an overflow into the password buffer so I can control the va
 
 As I click around in the binary and command handlers looking for anything useful I came across the string "resetting default password", which was tied to command `0x72`. This command handler verified that the data for the incoming request matched the serial number of the device if so copy the serial number to offset 0x1c6 and set offset 0x1c5 to 1.
 
-![Binja Serial Number Snap](/media/serial_number.png?raw=true)
+![Binja Serial Number Snap](media/serial_number.png?raw=true)
 
 At first this seemed useless, I don't need the offset 0x1c6 reset to the default password I need the global password buffer. But inspecting the login handler again I noticed that if the password check fails, the offset 0x1c6 is compared to the value in the password TLV if that checks out then offset 0x1c5 is check if that is set then we successfully authincate with the device!
 
